@@ -1,33 +1,15 @@
-# Text-to-SQL (Flask + SQLite + OpenAI)
+🧠 Text-to-SQL API
 
-## Quickstart
-```bash
-cd text_to_sql_project
-python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env  # add your OpenAI key
-python app.py
-```
+This is a Flask-based REST API that converts natural language questions into SQL queries using OpenAI's GPT models, runs them on a database, and returns results or textual summaries. Useful for building no-code or low-code data query interfaces.
 
-Now try (in another terminal):
+🚀 Features
 
-```bash
-curl -X POST http://127.0.0.1:5000/ask -H "Content-Type: application/json"   -d '{"question": "How many sales were there last year?"}'
-```
+Natural language to SQL translation using OpenAI
 
-## Endpoints
-- `GET /` – health check
-- `GET /schema` – returns schema text
-- `GET /employees` – sample data
-- `POST /ask` – body: `{ "question": "..." }` -> returns SQL, rows, final answer
-- `POST /sql` – body: `{ "sql": "SELECT ..."} ` -> execute a safe query
+Automatic schema introspection
 
-## Database
-- `data/employees.db` with two tables:
-  - `employees(Employee_ID, Name, Age, Gender, Department, Job_Title, Experience_Years, Education_Level, Location, Salary, Hire_Date)`
-  - `sales(Sale_ID, Employee_ID, Sale_Date, Amount, Product, Region)`
-```
+Query execution and result fetching
 
-# Security notes
-- The backend asks the model to generate **only SELECT** statements and rejects non-SELECT queries.
-- Consider additional validation / allow-listing in production.
+Human-readable answer generation
+
+Health and diagnostics endpoints
