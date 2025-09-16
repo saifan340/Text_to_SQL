@@ -1,24 +1,25 @@
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
-from utils import get_all_tables_and_columns, get_schema_text_from_db
+from utils import get_schema_text_from_db
 
 load_dotenv()
 
+MODEL_NAME = "gpt-4o-mini"
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def call_openai_for_sql(user_question: str, schema: str = None) -> str:
+
+def call_openai_for_sql(user_question: str, schema: str | None = None) -> str:
     """
-    Generate an SQL query based on user question + database schema.
-    Always expects a schema, but will fetch one if not provided.
+    Generate an SQL query based on a user question + database schema.
+    Always expects a schema, but fetches one if not provided.
     """
     if schema is None:
-        schema = get_schema_text_from_db()  # safer than get_all_tables_and_columns()
+        schema = get_schema_text_from_db()
 
     system_message = (
         "You are an expert SQL assistant. "
-        "Given a database schema and a natural language request, "
-        "generate only the SQL query. "
+        "Given a database schema and a natural language request, generate only the SQL query. "
         "Do not include explanations, comments, or extra text. "
         "Use SQLite syntax."
     )
@@ -26,49 +27,83 @@ def call_openai_for_sql(user_question: str, schema: str = None) -> str:
     user_message = f"Database schema:\n{schema}\n\nUser request: {user_question}"
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=MODEL_NAME,
         messages=[
             {"role": "system", "content": system_message},
-            {"role": "user", "content": user_message}
+            {"role": "user", "content": user_message},
         ],
         temperature=0
     )
 
     sql_query = response.choices[0].message.content.strip()
 
-    # Clean up code fences if model returns ```sql ... ```
+    # Remove any code fences
     if sql_query.startswith("```"):
-        sql_query = sql_query.strip("```").replace("sql", "", 1).strip()
-
+        sql_query = "\n".join(line for line in sql_query.splitlines() if not line.startswith("```"))
     return sql_query
 
 
-def call_openai_for_answer(user_question: str, sql_query: str, db_results: list) -> str:
+def call_openai_for_answer(
+    user_question: str,
+    sql_query: str,
+    db_results: str | list[dict] | None = None,
+    context: str = "",
+    model: str = MODEL_NAME,
+    temperature: float = 0
+) -> str:
     """
-    Convert raw DB results into a short, clear natural language answer.
+    Generate a natural language answer to a user question using the executed SQL and DB results.
     """
-    prompt = f"""
-    User question: {user_question}
-    SQL executed: {sql_query}
-    DB results: {db_results}
+    if isinstance(db_results, list):
+        # Convert list of dicts to readable string
+        db_results = "\n".join(str(row) for row in db_results)
 
-    Please provide a short, clear final answer for the user.
-    """
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    return response.choices[0].message.content.strip()
-def call_openai_for_text(prompt):
-    """Return AI-generated text based on a prompt."""
-    from openai_service import client
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "You are an expert assistant who summarizes SQL results in clear, readable text."},
-            {"role": "user", "content": prompt}
+    try:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert SQL assistant. "
+                    "Given the user's question, past conversation, the executed SQL query, "
+                    "and the results from the database, respond in clear, concise, and natural language."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"User question:\n{user_question}\n\n"
+                    f"Conversation history:\n{context}\n\n"
+                    f"Executed SQL:\n{sql_query}\n\n"
+                    f"Database results:\n{db_results}"
+                ),
+            }
         ]
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        return f"Error generating answer: {str(e)}"
+
+
+def call_openai_for_text(prompt: str, model: str = MODEL_NAME, temperature: float = 0) -> str:
+    """
+    Return AI-generated text based on a prompt.
+    """
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an expert assistant who summarizes SQL results in clear, readable text."
+            },
+            {"role": "user", "content": prompt}
+        ],
+        temperature=temperature
     )
-    return response.choices[0].message.content
+    return response.choices[0].message.content.strip()
