@@ -45,3 +45,5 @@ coverage.xml
 
 # macOS specific
 .DS_Store
+#config
+config.py
