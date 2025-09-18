@@ -5,10 +5,12 @@ from openai_service import call_openai_for_sql, call_openai_for_answer
 from db import run_sql, init_db, save_conversation, get_conversation_history
 import logging
 from functools import wraps
-
-
-
 # Setup logging
+# python
+#from db import init_db, run_sql
+
+init_db()
+print(run_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'"))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

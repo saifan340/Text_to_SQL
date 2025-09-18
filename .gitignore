@@ -1,49 +1,106 @@
-# Byte-compiled / optimized / DLL files
+# ============================================
+# Python
+# ============================================
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual environment
+# Bytecode / cache
+*.pyo
+*.pyd
+*.pdb
+
+# ============================================
+# Virtual Environments
+# ============================================
 .venv/
 venv/
 env/
+ENV/
 
-# Environment variables
+# ============================================
+# Environment & Config
+# ============================================
 .env
 *.env
+config.py
 
-# Distribution / packaging
+# ============================================
+# Distribution / Packaging
+# ============================================
 build/
 dist/
 *.egg-info/
 .eggs/
-
-# PyInstaller
+*.egg
 *.spec
 
-# Unit test / coverage reports
+# ============================================
+# Unit Test / Coverage
+# ============================================
 htmlcov/
 .tox/
 .nox/
 .coverage
+.coverage.*
+.cache
+nosetests.xml
 coverage.xml
 *.cover
 *.py,cover
 
-# Logs and databases
+# ============================================
+# Logs & Databases
+# ============================================
 *.log
 *.sqlite
+*.sqlite3
 *.db
 
-# IDE / editor specific
+# ============================================
+# IDE / Editor Specific
+# ============================================
 .vscode/
 .idea/
 *.swp
 
-# Jupyter Notebook checkpoints
+# ============================================
+# Jupyter Notebook
+# ============================================
 .ipynb_checkpoints
+*.nbconvert.ipynb
 
-# macOS specific
+# ============================================
+# Type Checkers
+# ============================================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# ============================================
+# Profiling
+# ============================================
+*.prof
+*.pstats
+*.out
+
+# ============================================
+# OS Specific
+# ============================================
+# macOS
 .DS_Store
-#config
-config.py
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ============================================
+# Pyright
+# ============================================
+pyrightconfig.json
+

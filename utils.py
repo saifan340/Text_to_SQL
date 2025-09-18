@@ -1,12 +1,12 @@
 import sqlite3
 
-DB_PATH = "database.db"
+DB_PATH = "employer.db"
 
 
 def get_all_tables_and_columns():
     """
-   Reads all tables and their columns from the SQLite database.
-   Returns a dict: { "table": ["column1", "column2", ...], ... }
+    Reads all tables and their columns from the SQLite database.
+    Returns a dict: { "table": ["column1", "column2", ...], ... }
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -22,8 +22,9 @@ def get_all_tables_and_columns():
         schema_info[table_name] = columns
 
     conn.close()
-    return schema_info
+    return schema_info  # Explicitly return schema_info, even if it's empty
 
+#get_all_tables_and_columns()
 
 def get_schema_text_from_db():
     """
@@ -37,3 +38,4 @@ def get_schema_text_from_db():
         schema_text += f"Table: {table}\nColumns: {', '.join(columns)}\n\n"
 
     return schema_text.strip()
+print(get_schema_text_from_db())
