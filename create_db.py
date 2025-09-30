@@ -1,21 +1,17 @@
 import pandas as pd
 import sqlite3
 
-# Load CSV file
-csv_file = 'employers_data.csv'
+csv_file = 'Employers_data.csv'
 df = pd.read_csv(csv_file)
 
-# Show first rows (optional)
-print("Preview of CSV:")
-print(df.head())
+df_employees = df[['Employee_ID', 'Name', 'Age', 'Gender', 'Department', 'Job_Title', 'Location']]
 
-# Connect to SQLite (creates db file if not exists)
+df_details = df[['Employee_ID', 'Experience_Years', 'Education_Level', 'Salary']]
+
 conn = sqlite3.connect('employer.db')
 
-# Save DataFrame to table 'employees'
-df.to_sql('employees', conn, if_exists='replace', index=False)
+df_employees.to_sql('employees', conn, if_exists='replace', index=False)
 
-print("✅ Data inserted into 'employees' table in employer.db")
+df_details.to_sql('details', conn, if_exists='replace', index=False)
 
-# Close connection
 conn.close()

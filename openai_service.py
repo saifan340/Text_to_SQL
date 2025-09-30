@@ -1,13 +1,15 @@
-import os
+#import os
 from openai import OpenAI
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 from utils import get_schema_text_from_db
+from config import OPENAI_API_KEY, MODEL_NAME
 
-load_dotenv()
 
-MODEL_NAME = "gpt-4o-mini"
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+#load_dotenv()
 
+#MODEL_NAME = "gpt-4o-mini"
+#client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 def call_openai_for_sql(user_question: str, schema: str | None = None) -> str:
     """
@@ -32,7 +34,7 @@ def call_openai_for_sql(user_question: str, schema: str | None = None) -> str:
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
         ],
-        temperature=0
+        temperature=0.3
     )
 
     sql_query = response.choices[0].message.content.strip()
@@ -55,7 +57,6 @@ def call_openai_for_answer(
     Generate a natural language answer to a user question using the executed SQL and DB results.
     """
     if isinstance(db_results, list):
-        # Convert list of dicts to readable string
         db_results = "\n".join(str(row) for row in db_results)
 
     try:
@@ -64,7 +65,7 @@ def call_openai_for_answer(
                 "role": "system",
                 "content": (
                     "You are an expert SQL assistant. "
-                    "Given the user's question, past conversation, the executed SQL query, "
+                    "Given the user's question, past conversation, "
                     "and the results from the database, respond in clear, concise, and natural language."
                 ),
             },

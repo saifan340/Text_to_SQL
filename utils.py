@@ -22,9 +22,7 @@ def get_all_tables_and_columns():
         schema_info[table_name] = columns
 
     conn.close()
-    return schema_info  # Explicitly return schema_info, even if it's empty
-
-#get_all_tables_and_columns()
+    return schema_info
 
 def get_schema_text_from_db():
     """
@@ -38,4 +36,3 @@ def get_schema_text_from_db():
         schema_text += f"Table: {table}\nColumns: {', '.join(columns)}\n\n"
 
     return schema_text.strip()
-print(get_schema_text_from_db())
