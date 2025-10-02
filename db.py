@@ -1,6 +1,7 @@
 import sqlite3
 
-DB_NAME = "employer.db"
+DB_NAME = "conversation.db"
+
 
 def run_sql(query, params=None):
     """

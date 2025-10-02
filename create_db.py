@@ -8,7 +8,7 @@ df_employees = df[['Employee_ID', 'Name', 'Age', 'Gender', 'Department', 'Job_Ti
 
 df_details = df[['Employee_ID', 'Experience_Years', 'Education_Level', 'Salary']]
 
-conn = sqlite3.connect('employer.db')
+conn = sqlite3.connect('conversation.db')
 
 df_employees.to_sql('employees', conn, if_exists='replace', index=False)
 
