@@ -1,6 +1,6 @@
 # Text-to-SQL API
 
-A small Flask service that turns natural‑language questions into SQL using OpenAI, executes the SQL against a SQLite database, and returns both the raw rows and a concise, human‑readable answer. Great for no/low‑code data querying and prototyping.
+A Flask service that turns natural language questions into SQL using OpenAI, executes the SQL against a SQLite database, and returns both the raw rows and a concise, human-readable answer. Includes both a REST API and Streamlit web interface. Great for no/low-code data querying and prototyping.
 
 ## How it works
 - Reads your database schema (tables/columns) for context.
@@ -11,23 +11,43 @@ A small Flask service that turns natural‑language questions into SQL using Ope
 
 ## Project structure
 - app.py — Flask app and HTTP endpoints
-- db.py — Lightweight SQLite helpers + conversation storage (uses employer.db)
-- utils.py — Schema introspection helpers (defaults to database.db)
+- db.py — Lightweight SQLite helpers + conversation storage (uses conversation.db)
+- utils.py — Schema introspection helpers (uses conversation.db)
 - openai_service.py — Calls to OpenAI chat completions API
-- create_db.py — Helper script to create employer.db from the CSV
-- Employers_data.csv — Sample data to seed the DB (employees table)
-- test_ai.py — Simple CLI to try text→SQL→answer loop
-- config.py — Env var loading and defaults
-- employer.db / database.db — SQLite files (see DB notes below)
+- create_db.py — Helper script to create conversation.db from the CSV
+- Employers_data.csv — Sample data to seed the DB (employees and details tables)
+- streamlit_app.py — Main Streamlit web interface with multiple tabs
+- streamlit2_app.py — Simple Streamlit interface for basic testing
+- config.py — Environment variable loading and defaults
+- conversation.db — SQLite database file
+- requirements.txt — Python dependencies (development)
+- requirements-prod.txt — Python dependencies (production with exact versions)
+- requirements-dev.txt — Development dependencies with testing tools
 
 ## Requirements
 - Python 3.10+
 - An OpenAI API key
 
-Install dependencies (no requirements.txt provided):
+Install dependencies:
 
+**For development (recommended):**
+```bash
+pip install -r requirements.txt
 ```
-pip install -U flask python-dotenv openai pandas
+
+**For production (exact versions):**
+```bash
+pip install -r requirements-prod.txt
+```
+
+**For development with testing tools:**
+```bash
+pip install -r requirements-dev.txt
+```
+
+Or install manually:
+```bash
+pip install -U flask python-dotenv openai pandas streamlit requests
 ```
 
 ## Environment variables
@@ -43,27 +63,19 @@ Optional:
 - PORT=5000 (server port)
 
 ## Data and database setup
-This project expects an employees table in a SQLite DB.
+This project uses a single SQLite database file (`conversation.db`) for both schema and queries.
 
-1) Seed sample data (employer.db):
+1) Seed sample data:
 
-```
+```bash
 python create_db.py
 ```
 
-This reads Employers_data.csv and writes an employees table into employer.db.
+This reads `Employers_data.csv` and creates two tables in `conversation.db`:
+- `employees` table with basic employee information
+- `details` table with additional employee details (experience, education, salary)
 
-2) Important: pick a single database for both schema and queries
-- db.py runs queries against employer.db.
-- utils.py reads schema from database.db by default.
-
-To keep things consistent, do ONE of the following:
-- Easiest: edit utils.py and set `DB_PATH = "employer.db"` so schema and queries use the same file; or
-- Copy/align your schema into database.db if you prefer to keep them separate.
-
-If you see errors like "no such table: employees" from /schema or /ask, it usually means the schema/DB files are out of sync.
-
-Note on file names (case sensitivity): the CSV in the repo is named "Employers_data.csv" (capital E) while create_db.py references "employers_data.csv" (lowercase). On case‑sensitive filesystems, rename the file or update the script accordingly.
+The database is automatically created if it doesn't exist.
 
 ## Run the API
 ```
@@ -73,14 +85,56 @@ python app.py
 The server listens on 0.0.0.0 and defaults to PORT 5000. You can override with PORT env var.
 
 Health check:
-```
+```bash
 curl -s http://localhost:5000/health | jq
 ```
 
 Root page (HTML):
-```
+```bash
 curl -s http://localhost:5000/
 ```
+
+## Run the Streamlit Web Interface
+
+The project includes two Streamlit applications:
+
+### Main Streamlit App (Recommended)
+```bash
+streamlit run streamlit_app.py
+```
+
+This provides a comprehensive web interface with multiple tabs:
+- **Home**: Welcome page and overview
+- **Chat**: Interactive chat interface with conversation history
+- **Ask**: Simple question-answer interface
+- **Schema**: View database schema and table structure
+- **Database Viewer**: Browse table data with previews
+- **Health**: Check API health status
+
+### Simple Streamlit App
+```bash
+streamlit run streamlit2_app.py
+```
+
+A minimal interface for basic testing with a single input field.
+
+**Note**: Make sure the Flask API is running before using the Streamlit apps, as they connect to the backend API.
+
+### Streamlit App Features
+
+The main Streamlit app (`streamlit_app.py`) provides:
+
+- **Multi-tab interface** for different functionalities
+- **Real-time chat** with conversation history
+- **Schema exploration** with interactive table browsing
+- **Database preview** showing sample data from tables
+- **Health monitoring** for the backend API
+- **User session management** with persistent chat history
+
+The simple Streamlit app (`streamlit2_app.py`) provides:
+- **Basic question input** interface
+- **Direct API integration** for quick testing
+- **Minimal setup** for simple use cases
 
 ## API reference
 - GET /health — Service health JSON
@@ -108,17 +162,32 @@ curl -s -X POST http://localhost:5000/ask \
 
 Typical response contains: your question, generated SQL, raw db_results, final_answer, and metadata.
 
-## Try it from the CLI
-```
-python test_ai.py
-```
-You will be prompted for a question; the script will show the generated SQL and a summarized answer.
+## Quick Start
+
+1. **Set up the database:**
+   ```bash
+   python create_db.py
+   ```
+
+2. **Start the Flask API:**
+   ```bash
+   python app.py
+   ```
+
+3. **Run the Streamlit interface:**
+   ```bash
+   streamlit run streamlit_app.py
+   ```
+
+4. **Test with a sample question:**
+   Open your browser to the Streamlit app and ask: "How many employees are in the Sales department?"
 
 ## Troubleshooting
-- Missing OPENAI_API_KEY: set it in .env or your shell env.
-- No such table: employees: run create_db.py to (re)create employer.db, or align utils.DB_PATH with employer.db.
-- OpenAI errors: ensure your key is correct and the account has access to the selected model.
-- CORS/Network when calling from a browser/app: add Flask-CORS or a reverse proxy as needed.
+- **Missing OPENAI_API_KEY**: Set it in .env file or your shell environment
+- **No such table: employees**: Run `python create_db.py` to create the database and tables
+- **OpenAI errors**: Ensure your API key is correct and the account has access to the selected model
+- **Streamlit connection errors**: Make sure the Flask API is running on the correct port (default: 5000)
+- **CORS/Network errors**: Add Flask-CORS or a reverse proxy as needed for browser/app integration
 
 ## Security notes
 - Do not expose this service publicly without authentication and query safety controls. Although the LLM is guided to use SQLite syntax, you should still validate/whitelist SQL or run with restricted permissions.

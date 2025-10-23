@@ -1,0 +1,14 @@
+# Core dependencies
+flask>=2.3.0,<3.0.0
+python-dotenv>=1.0.0,<2.0.0
+openai>=1.0.0,<2.0.0
+pandas>=2.0.0,<3.0.0
+streamlit>=1.28.0,<2.0.0
+requests>=2.31.0,<3.0.0
+
+# Development dependencies (optional)
+# Uncomment the following lines for development:
+# pytest>=7.0.0
+# black>=23.0.0
+# flake8>=6.0.0
+# mypy>=1.0.0

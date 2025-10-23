@@ -33,21 +33,6 @@ dist/
 .eggs/
 *.egg
 *.spec
-
-# ============================================
-# Unit Test / Coverage
-# ============================================
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-
 # ============================================
 # Logs & Databases
 # ============================================
@@ -62,44 +47,4 @@ coverage.xml
 .vscode/
 .idea/
 *.swp
-
-# ============================================
-# Jupyter Notebook
-# ============================================
-.ipynb_checkpoints
-*.nbconvert.ipynb
-
-# ============================================
-# Type Checkers
-# ============================================
-.mypy_cache/
-.dmypy.json
-dmypy.json
-.pyre/
-.pytype/
-
-# ============================================
-# Profiling
-# ============================================
-*.prof
-*.pstats
-*.out
-
-# ============================================
-# OS Specific
-# ============================================
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-
-# ============================================
-# Pyright
-# ============================================
-pyrightconfig.json
 
