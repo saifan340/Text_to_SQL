@@ -1,6 +1,8 @@
 # Text-to-SQL API
 
-A Flask service that turns natural language questions into SQL using OpenAI, executes the SQL against a SQLite database, and returns both the raw rows and a concise, human-readable answer. Includes both a REST API and Streamlit web interface. Great for no/low-code data querying and prototyping.
+A Flask service that turns natural language questions into SQL using OpenAI, executes the SQL against a SQLite database, 
+and returns both the raw rows and a concise, human-readable answer. Includes both a REST API and Streamlit web interface. 
+Great for no/low-code data querying and prototyping.
 
 ## How it works
 - Reads your database schema (tables/columns) for context.
@@ -17,7 +19,6 @@ A Flask service that turns natural language questions into SQL using OpenAI, exe
 - create_db.py — Helper script to create conversation.db from the CSV
 - Employers_data.csv — Sample data to seed the DB (employees and details tables)
 - streamlit_app.py — Main Streamlit web interface with multiple tabs
-- streamlit2_app.py — Simple Streamlit interface for basic testing
 - config.py — Environment variable loading and defaults
 - conversation.db — SQLite database file
 - requirements.txt — Python dependencies (development)
@@ -96,7 +97,7 @@ curl -s http://localhost:5000/
 
 ## Run the Streamlit Web Interface
 
-The project includes two Streamlit applications:
+The project includes Streamlit application:
 
 ### Main Streamlit App (Recommended)
 ```bash
@@ -111,13 +112,6 @@ This provides a comprehensive web interface with multiple tabs:
 - **Database Viewer**: Browse table data with previews
 - **Health**: Check API health status
 
-### Simple Streamlit App
-```bash
-streamlit run streamlit2_app.py
-```
-
-A minimal interface for basic testing with a single input field.
-
 **Note**: Make sure the Flask API is running before using the Streamlit apps, as they connect to the backend API.
 
 ### Streamlit App Features
@@ -130,20 +124,20 @@ The main Streamlit app (`streamlit_app.py`) provides:
 - **Database preview** showing sample data from tables
 - **Health monitoring** for the backend API
 - **User session management** with persistent chat history
-
-The simple Streamlit app (`streamlit2_app.py`) provides:
-- **Basic question input** interface
-- **Direct API integration** for quick testing
-- **Minimal setup** for simple use cases
-
+- 
 ## API reference
-- GET /health — Service health JSON
-- GET /schema — Returns discovered tables/columns
-- GET /employees — Example: returns all rows from employees
-- POST /query — Generates SQL for your prompt and executes it
-- POST /ask — Like /query but also uses recent conversation as context and stores Q/A to DB
-- GET/POST /ask_form — Minimal HTML form for manual testing
+GET /health — Returns service health status in JSON format.
 
+GET /schema — Returns discovered database tables and columns.
+
+GET /employees — Example endpoint that returns all rows from the employees table.
+
+POST /query — Generates and executes an SQL query based on the user’s prompt.
+
+POST /ask — Similar to /query, but also considers recent conversation history and stores the Q&A in the database.
+
+POST /chat — Enables free-form conversation between the user and the LLM, 
+handling both database-related and general (non-database) questions.
 Examples
 
 Generate and run SQL from a prompt:
