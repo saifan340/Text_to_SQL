@@ -2,16 +2,10 @@ import os
 import requests
 import streamlit as st
 from dotenv import load_dotenv
-from config import MODEL_NAME
-from openai_service import call_openai_for_sql, call_openai_for_answer, call_openai_for_not_db_answer
-from db import run_sql, save_conversation
-from utils import get_schema_text_from_db
+from db import save_conversation
 from db import init_db
 init_db()
-
-
 load_dotenv()
-
 API_URL = os.getenv("API_URL", "http://localhost:5000").rstrip("/")
 
 st.set_page_config(page_title="Text-To-SQL App", layout="wide")
@@ -97,7 +91,6 @@ with home_tab:
         - Check the health of the backend API  
         - View the database schema 
         - Check if the backend API is running  
-
         ---
         Use the tabs above to get started!  
         """
@@ -258,8 +251,6 @@ with chat_tab:
                 if is_db and sql_query:
                    with st.chat_message("assistant"):
                        st.markdown(f"**SQL:**\n```sql\n{sql_query}\n```\n**Answer:** {final_answer}")
-                      # assistant_content = (f"**SQL:**\n```sql\n{sql_query}\n```\n\n"
-                                            #f"**Answer:** {final_answer}")
                 else:
                     #assistant_content = final_answer
                     with st.chat_message("assistant"):

@@ -240,8 +240,6 @@ def call_openai_for_classification(question: str, schema_text: str) -> bool:
             return True
         if text.startswith("false"):
             return False
-
-        # fallback if model gives weird text
         return False
 
     except Exception as e:
