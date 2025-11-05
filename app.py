@@ -1,17 +1,18 @@
 import os
 from flask import Flask, request, jsonify
 from utils import get_all_tables_and_columns, get_schema_text_from_db
-from openai_service import call_openai_for_sql, call_openai_for_answer
-from db import run_sql, init_db, save_conversation, get_conversation_history, get_chat_history, clear_chat_history
+from openai_service import call_openai_for_sql, call_openai_for_answer, call_openai_for_not_db_answer, call_openai_for_classification
+from db import run_sql, init_db, save_conversation, get_conversation_history
 import logging
 from functools import wraps
+from flask_cors import CORS
 
 init_db()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-
+CORS(app)
 def handle_exceptions(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -48,10 +49,7 @@ def home():
             "/schema": "GET - Get database schema",
             "/employees": "GET - Get all employees (example)",
             "/query": "POST - Execute custom SQL query",
-            "/ask": "POST - Ask natural language question",
-            "/chat": "POST - Chat with conversation history",
-            "/chat/history": "GET - Get chat history for user",
-            "/chat/clear": "POST - Clear chat history for user"
+            "/ask": "POST - Ask natural language question"
         }
     })
 @app.route("/employees")
@@ -201,175 +199,67 @@ def ask_question():
 
 
 @app.route("/chat", methods=["POST"])
-@handle_exceptions
 def chat():
-    """
-    Chat endpoint with conversation history:
-    - Load chat history for context
-    - Process user message (DB or general question)
-    - Generate appropriate response
-    - Save conversation to history
-    """
-    data = request.json
-    if not data:
-        return jsonify({"error": "JSON body required"}), 400
-
-    user_message = data.get("message")
-    user_id = data.get("user_id", "default_user")
-    chat_id = data.get("chat_id")  # Optional chat session ID
-
-    if not user_message:
-        return jsonify({"error": "Missing 'message' field"}), 400
-
-    logger.info(f"User {user_id} sent chat message: {user_message}")
-
-    # Get chat history for context
+    schema_text = get_schema_text_from_db()
     try:
-        chat_history = get_chat_history(user_id, limit=10)
-        logger.info(f"Retrieved {len(chat_history)} messages from chat history")
-    except Exception as e:
-        logger.error(f"Failed to get chat history: {str(e)}")
-        chat_history = []
+        data = request.get_json(force=True)
+        user_id = data.get("user_id", "default_user")
+        message = data.get("message", "").strip()
 
-    # Determine if this is a database question
-    is_db_question = _is_db_question(user_message)
-    
-    try:
-        if is_db_question:
-            # Handle database question
+        if not message:
+            return jsonify({"error": "Message cannot be empty"}), 400
+
+        # Determine if it's a database question
+        is_db = call_openai_for_classification(message, schema_text)
+
+        if is_db:
             schema = get_schema_text_from_db()
-            sql_query = call_openai_for_sql(user_message, schema)
-            
-            if not sql_query:
-                response_message = "I couldn't generate a SQL query for your question. Please try rephrasing it."
-                sql_query = ""
-                db_results = []
-            else:
-                try:
-                    db_results = run_sql(sql_query)
-                    logger.info(f"SQL executed successfully, {len(db_results)} rows returned")
-                    
-                    # Generate natural language answer
-                    final_answer = call_openai_for_answer(
-                        user_question=user_message,
-                        sql_query=sql_query,
-                        db_results=db_results,
-                        context=""
-                    )
-                    response_message = final_answer or f"Query executed successfully and returned {len(db_results)} results."
-                    
-                except Exception as e:
-                    logger.error(f"SQL execution failed: {str(e)}")
-                    response_message = f"SQL execution failed: {str(e)}"
-                    db_results = []
-        else:
-            # Handle general question (non-database)
+            sql_query = call_openai_for_sql(message, schema)
+
             try:
-                from openai_service import call_openai_for_not_db_answer
-                from config import MODEL_NAME
-                response_message = call_openai_for_not_db_answer(
-                    prompt=user_message, 
-                    model=MODEL_NAME, 
-                    temperature=0.7
-                )
-                if isinstance(response_message, dict):
-                    response_message = response_message.get("final_answer") or response_message.get("answer") or str(response_message)
-                sql_query = ""
-                db_results = []
+                db_results = run_sql(sql_query)
             except Exception as e:
-                logger.error(f"General question processing failed: {str(e)}")
-                response_message = f"I encountered an error processing your question: {str(e)}"
-                sql_query = ""
-                db_results = []
+                db_results = f"(Error executing SQL: {e})"
+
+            final_answer = call_openai_for_answer(
+                user_question=message,
+                sql_query=sql_query,
+                db_results=db_results,
+                context=""
+            )
+
+            save_conversation(user_id, message, sql_query, final_answer)
+
+            return jsonify({
+                "final_answer": final_answer,
+                "sql_query": sql_query,
+                "db_results": db_results,
+                "is_db_question": True
+            })
+
+        else:
+            final_answer = call_openai_for_not_db_answer(
+                prompt=message,
+                user_id=user_id
+            )
+            save_conversation(user_id, message, "", final_answer)
+
+            return jsonify({
+                "final_answer": final_answer,
+                "is_db_question": False
+            })
 
     except Exception as e:
-        logger.error(f"Chat processing failed: {str(e)}")
-        response_message = f"Sorry, I encountered an error: {str(e)}"
-        sql_query = ""
-        db_results = []
-
-    # Save conversation to history
-    try:
-        save_conversation(user_id, user_message, sql_query, response_message)
-        logger.info("Conversation saved to history")
-    except Exception as e:
-        logger.error(f"Failed to save conversation: {str(e)}")
-
-    # Prepare response
-    response = {
-        "user_id": user_id,
-        "chat_id": chat_id,
-        "user_message": user_message,
-        "assistant_message": response_message,
-        "is_db_question": is_db_question,
-        "metadata": {
-            "sql_query": sql_query,
-            "result_count": len(db_results) if db_results else 0,
-            "timestamp": None  # Could add timestamp if needed
-        },
-        "chat_history_count": len(chat_history)
-    }
-
-    return jsonify(response), 200
-
-
-@app.route("/chat/history", methods=["GET"])
-@handle_exceptions
-def get_chat_history_endpoint():
-    """Get chat history for a user"""
-    user_id = request.args.get("user_id", "default_user")
-    limit = int(request.args.get("limit", 20))
-    
-    try:
-        chat_history = get_chat_history(user_id, limit)
-        return jsonify({
-            "user_id": user_id,
-            "messages": chat_history,
-            "count": len(chat_history)
-        }), 200
-    except Exception as e:
-        logger.error(f"Failed to get chat history: {str(e)}")
-        return jsonify({"error": f"Failed to get chat history: {str(e)}"}), 500
-
-
-@app.route("/chat/clear", methods=["POST"])
-@handle_exceptions
-def clear_chat():
-    """Clear chat history for a user"""
-    data = request.json or {}
-    user_id = data.get("user_id", "default_user")
-    
-    try:
-        clear_chat_history(user_id)
-        return jsonify({
-            "message": f"Chat history cleared for user {user_id}",
-            "user_id": user_id
-        }), 200
-    except Exception as e:
-        logger.error(f"Failed to clear chat history: {str(e)}")
-        return jsonify({"error": f"Failed to clear chat history: {str(e)}"}), 500
-
-
-def _is_db_question(prompt: str) -> bool:
-    """Determine if a prompt is asking about the database"""
-    if not prompt:
-        return False
-    
-    p = prompt.lower()
-    db_keywords = [
-        "select", "where", "group by", "order by", "join", "count", "sum",
-        "average", "how many", "show", "list", "find", "table", "sql", "query",
-        "database", "db", "employees", "salary", "department", "hire date"
-    ]
-    return any(keyword in p for keyword in db_keywords)
-
+        # Log the error
+        print(f"Error in /chat route: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     logger.info("Starting Text-to-SQL API server...")
     app.run(
         debug=os.getenv("FLASK_DEBUG", "false").lower() == "true",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 5000))
+        port=int(os.getenv("PORT", 5000) or os.environ.get(
+            "FLASK_RUN_PORT", "5000"
+        ))
     )
-
-

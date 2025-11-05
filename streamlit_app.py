@@ -6,10 +6,13 @@ from config import MODEL_NAME
 from openai_service import call_openai_for_sql, call_openai_for_answer, call_openai_for_not_db_answer
 from db import run_sql, save_conversation
 from utils import get_schema_text_from_db
+from db import init_db
+init_db()
+
 
 load_dotenv()
 
-API_URL = os.getenv("API_URL", "http://localhost:5001").rstrip("/")
+API_URL = os.getenv("API_URL", "http://localhost:5000").rstrip("/")
 
 st.set_page_config(page_title="Text-To-SQL App", layout="wide")
 
@@ -206,120 +209,80 @@ with db_tab:
 # ---------- CHAT TAB ----------
 with chat_tab:
     st.title("Chat with your Assistant")
-    
-    # Initialize session state
+
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "history" not in st.session_state:
         st.session_state.history = []
-    if "user_id" not in st.session_state:
-        st.session_state.user_id = "default_user"
-    
-    # Load chat history from backend
-    @st.cache_data(ttl=60)  # Cache for 1 minute
-    def load_chat_history(user_id):
-        try:
-            resp = requests.get(f"{API_URL}/chat/history", 
-                              params={"user_id": user_id, "limit": 50}, 
-                              timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                return data.get("messages", [])
-        except Exception as e:
-            st.error(f"Failed to load chat history: {e}")
-        return []
-    
-    # Load and display chat history
-    try:
-        backend_history = load_chat_history(st.session_state.user_id)
-        if backend_history:
-            st.write(f"**Loaded {len(backend_history)} messages from backend**")
-            
-            # Display chat history
-            for msg in backend_history[-10:]:  # Show last 10 messages
-                role = msg.get("role", "assistant")
-                content = msg.get("content", "")
-                metadata = msg.get("metadata", {})
-                
-                with st.chat_message(role):
-                    st.markdown(content)
-                    if metadata.get("sql"):
-                        st.code(metadata["sql"], language="sql")
+
+    if st.session_state.messages:
+        last_question = next(
+            (msg["content"] for msg in reversed(st.session_state.messages) if msg.get("role") == "user"),
+            None
+        )
+        if last_question:
+            st.write(f"**Your last question was:** {last_question}")
         else:
-            st.write("No chat history available.")
-    except Exception as e:
-        st.warning(f"Could not load chat history: {e}")
-    
-    # Chat input
+            st.write("No user questions found in the conversation.")
+    else:
+        st.write("No chat history available.")
+
+    # Display previous chat messages
+    for m in st.session_state.messages:
+        role = m.get("role", "assistant")
+        with st.chat_message(role):
+            st.markdown(m.get("content", ""))
+
+    # Handle new user input
     if user_input := st.chat_input("Ask your database a question..."):
-        # Add user message to display
         with st.chat_message("user"):
             st.markdown(user_input)
-        
-        # Send to backend chat API
+        st.session_state.messages.append({"role": "user", "content": user_input})
+
+        payload = {
+            "user_id": st.session_state.get("user_id", "default_user"),
+            "message": user_input
+        }
+
         with st.spinner("Processing..."):
             try:
-                payload = {
-                    "message": user_input,
-                    "user_id": st.session_state.user_id
-                }
-                
-                resp = requests.post(f"{API_URL}/chat", json=payload, timeout=30)
+                resp = requests.post(f"{API_URL}/chat", json=payload, timeout=40)
                 resp.raise_for_status()
                 data = resp.json()
-                
-                # Display assistant response
-                assistant_message = data.get("assistant_message", "No response received")
-                is_db_question = data.get("is_db_question", False)
-                metadata = data.get("metadata", {})
-                sql_query = metadata.get("sql_query", "")
-                
-                with st.chat_message("assistant"):
-                    if is_db_question and sql_query:
-                        st.markdown(f"**SQL:**\n```sql\n{sql_query}\n```\n**Answer:** {assistant_message}")
-                    else:
-                        st.markdown(assistant_message)
-                
-                # Add to local history for immediate display
-                add_history(user_input, assistant_message, metadata)
-                
-                # Clear cache to reload history
-                load_chat_history.clear()
-                
-            except Exception as e:
-                error_msg = f"Error: {e}"
-                with st.chat_message("assistant"):
-                    st.markdown(error_msg)
-                add_history(user_input, error_msg, {})
-    
-    # Chat management controls
-    st.markdown("---")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("Clear Chat History"):
-            try:
-                resp = requests.post(f"{API_URL}/chat/clear", 
-                                   json={"user_id": st.session_state.user_id}, 
-                                   timeout=10)
-                if resp.status_code == 200:
-                    st.success("Chat history cleared!")
-                    load_chat_history.clear()  # Clear cache
-                    st.rerun()
-                else:
-                    st.error("Failed to clear chat history")
-            except Exception as e:
-                st.error(f"Error clearing chat history: {e}")
-    
-    with col2:
-        if st.button("Refresh History"):
-            load_chat_history.clear()  # Clear cache
-            st.rerun()
-    
-    with col3:
-        new_user_id = st.text_input("User ID", value=st.session_state.user_id, key="user_id_input")
-        if new_user_id != st.session_state.user_id:
-            st.session_state.user_id = new_user_id
-            load_chat_history.clear()  # Clear cache
-            st.rerun()
 
+                final_answer = data.get("final_answer", "(no answer)")
+                sql_query = data.get("sql_query")
+                db_results = data.get("db_results")
+                is_db = data.get("is_db_question", False)
+
+                if is_db and sql_query:
+                   with st.chat_message("assistant"):
+                       st.markdown(f"**SQL:**\n```sql\n{sql_query}\n```\n**Answer:** {final_answer}")
+                      # assistant_content = (f"**SQL:**\n```sql\n{sql_query}\n```\n\n"
+                                            #f"**Answer:** {final_answer}")
+                else:
+                    #assistant_content = final_answer
+                    with st.chat_message("assistant"):
+                         st.markdown(final_answer)
+
+                st.session_state.messages.append({"role": "assistant", "content": final_answer})
+                add_history(user_input, final_answer, {"sql": sql_query, "results": db_results})
+
+            except Exception as e:
+                err = f"Error: {e}"
+                with st.chat_message("assistant"):
+                     st.markdown(err)
+                st.session_state.messages.append({"role": "assistant", "content": err})
+                #add_history(user_input, err, {})
+                add_history(user_input, err, {})
+
+    # Show previous conversation history
+    if st.session_state.history:
+        st.markdown("---")
+        st.subheader("Recent history")
+        for i, item in enumerate(st.session_state.history[:20], 1):
+            norm = normalize_history_item(item)
+            st.markdown(f"**{i}. Q:** {norm['question']}")
+            if sql := (norm.get("meta", {}).get("sql") or norm.get("meta", {}).get("query")):
+                st.code(sql, language="sql")
+            st.write(f"**A:** {norm['final_answer']}")

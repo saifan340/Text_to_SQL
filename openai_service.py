@@ -2,6 +2,7 @@ from openai import OpenAI
 from utils import get_schema_text_from_db
 from config import OPENAI_API_KEY, MODEL_NAME
 import logging
+from db import get_conversation_history
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -149,40 +150,100 @@ def call_openai_for_answer(
         logger.error(f"Error generating answer: {str(e)}")
         return f"Error generating answer: {str(e)}"
 
-def call_openai_for_not_db_answer(prompt: str, model: str = MODEL_NAME, temperature: float = DEFAULT_CHAT_TEMPERATURE) -> str:
+
+
+def call_openai_for_not_db_answer(
+    prompt: str,
+    model: str = MODEL_NAME,
+    temperature: float = DEFAULT_CHAT_TEMPERATURE,
+    user_id: str = "default_user",
+    history: list[dict] | None = None
+) -> str:
     """
-    Generates a text-based response from the AI for non-database questions.
-    Always returns a string.
-    
-    Args:
-        prompt (str): The user's question or prompt
-        model (str): OpenAI model to use
-        temperature (float): OpenAI temperature parameter (0.0-2.0)
-    
-    Returns:
-        str: AI-generated response to the user's question
+    Generates a text-based response from the AI for non-database questions,
+    keeping both in-memory (session) and persistent (DB) context.
     """
     try:
+        # Get stored history from DB
+        db_history = get_conversation_history(user_id=user_id, limit=5)
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful AI assistant. "
+                    "Use previous context from the same user to maintain conversational continuity. "
+                    "Answer clearly and naturally. If something was discussed earlier, recall it briefly."
+                ),
+            }
+        ]
+
+        # Add database-stored history
+        for q, a in db_history:
+            messages.append({"role": "user", "content": q})
+            messages.append({"role": "assistant", "content": a})
+
+        # Add in-session chat messages if provided (for live continuity)
+        if history:
+            for msg in history[-6:]:
+                if "role" in msg and "content" in msg:
+                    messages.append(msg)
+
+        # Add current user message
+        messages.append({"role": "user", "content": prompt})
+
+        # Call OpenAI API
         response = client.chat.completions.create(
             model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an expert AI assistant. "
-                        "You can answer all general (non-database) questions clearly, concisely, "
-                        "and in a readable, natural style. "
-                        "Be helpful and informative while staying accurate."
-                    )
-                },
-                {"role": "user", "content": prompt}
-            ],
+            messages=messages,
             temperature=temperature
         )
-        
-        message = _validate_openai_response(response)
-        return message if message else "Sorry, I couldn't generate a response."
-        
+
+        return _validate_openai_response(response)
+
     except Exception as e:
         logger.error(f"Error generating non-database answer: {str(e)}")
         return f"Sorry, I encountered an error while generating a response: {str(e)}"
+
+
+def call_openai_for_classification(question: str, schema_text: str) -> bool:
+    """
+    Use OpenAI to decide whether a user question requires a database query.
+    Returns True if the model decides SQL is needed, False otherwise.
+    """
+    try:
+        prompt = f"""
+                 You are a strict classifier. Given a user QUESTION and the DATABASE SCHEMA (tables and columns),
+                 decide whether the QUESTION requires running a SQL query against the database.
+
+                 Return ONLY a single token: true or false (lowercase, no punctuation).
+
+        SCHEMA:
+          {schema_text}
+
+        QUESTION:
+          {question}
+        """
+
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "You are a classifier that outputs only 'true' or 'false'."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0
+        )
+
+        text = _validate_openai_response(response).strip().lower()
+
+        if text.startswith("true"):
+            return True
+        if text.startswith("false"):
+            return False
+
+        # fallback if model gives weird text
+        return False
+
+    except Exception as e:
+        logger.error(f"Error in call_openai_for_classification: {e}")
+        return False
