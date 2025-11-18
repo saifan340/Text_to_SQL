@@ -1,4 +1,5 @@
 from openai import OpenAI
+
 from utils import get_schema_text_from_db
 from config import OPENAI_API_KEY, MODEL_NAME
 import logging
@@ -6,6 +7,8 @@ from db import get_conversation_history
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+
 
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
