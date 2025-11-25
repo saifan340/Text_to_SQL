@@ -92,7 +92,8 @@ with home_tab:
         - View the latest conversation history and answers
         - Check the health of the backend API  
         - View the database schema 
-        - Check if the backend API is running  
+        - Check if the backend API is running 
+        - Chat with an assistant (smart) 
         ---
         Use the tabs above to get started!  
         """
@@ -172,8 +173,6 @@ with health_tab:
         st.error(f"API not healthy: {e}")
 with db_tab:
     st.subheader("Database Viewer")
-
-    # Get schema first
     # Get schema first
     try:
         resp = requests.get(f"{API_URL}/preview", timeout=40)
@@ -189,7 +188,7 @@ with db_tab:
         with st.expander(f"{table}"):
             st.write("Columns:", ", ".join(columns or []))
 
-            preview_query = f"SELECT * FROM {table} LIMIT 20"
+            preview_query = f"SELECT * FROM {table} LIMIT 300"
 
             try:
                 preview = requests.post(
@@ -239,14 +238,10 @@ with chat_tab:
     # Handle new user input
     new_input = st.chat_input("Ask a question to the assistant:")
     if new_input:  # Triggered when the user sends a new message
-        st.session_state.new_user_message = new_input
+        #st.session_state.new_user_message = new_input
         st.session_state.messages.append({"role": "user", "content": new_input})
-        with st.chat_message("user"):  # Display user message
-            st.write(new_input)
-
-        # Process the user message
-        with st.chat_message("assistant"):  # Reserve container for assistant response
-            with st.spinner("Processing your query..."):
+        with st.container():
+           with st.spinner("Processing your query..."):
                 # Prepare payload for API call
                 payload = {"message": new_input}
                 try:
@@ -263,7 +258,15 @@ with chat_tab:
                 # Display the assistant's response
                 st.write(assistant_text)
                 # Add response to the chat history
-                st.session_state.messages.append({"role": "assistant", "content": assistant_text})
+        with st.chat_message("assistant"):
+            st.write(assistant_text)
+
+        st.session_state.messages.append({"role": "assistant", "content": assistant_text})
+        #st.session_state.new_user_message = None
+        #new_input = st.chat_input("Ask a question to the assistant:")
+        #if new_input:
+          #st.session_state.new_user_message = new_input
+        st.rerun()
 
     # Paginated history display
     if st.session_state.history:

@@ -42,6 +42,33 @@ def method_not_allowed(error):
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({"error": "Internal server error"}), 500
+
+# --- SQL helpers: paste at top of file ---
+import re
+
+_SQL_DETECT_RE = re.compile(r'^\s*(?:--.*\n\s*)*(SELECT|WITH|INSERT|UPDATE|DELETE|PRAGMA|CREATE|DROP)\b', re.IGNORECASE)
+_ALLOWED_EXPLICIT = {"SELECT", "WITH"}
+_FORBIDDEN_RE = re.compile(r'\b(ATTACH|DETACH|ALTER|VACUUM|REINDEX|PRAGMA\s+user_version)\b', re.IGNORECASE)
+_MULTI_STATEMENT_RE = re.compile(r';')
+
+def is_explicit_sql(text: str) -> bool:
+    return bool(_SQL_DETECT_RE.match(text))
+
+def top_level_statement(text: str) -> str:
+    m = _SQL_DETECT_RE.match(text)
+    return m.group(1).upper() if m else ""
+
+def is_safe_explicit_sql(text: str, allowed_top_level=None):
+    stmt = top_level_statement(text)
+    allowed = allowed_top_level or _ALLOWED_EXPLICIT
+    if stmt not in allowed:
+        return False, f"Statement '{stmt}' not allowed. Allowed: {sorted(allowed)}"
+    if len(_MULTI_STATEMENT_RE.findall(text)) > 1:
+        return False, "Multiple SQL statements detected."
+    if _FORBIDDEN_RE.search(text):
+        return False, "Forbidden SQL detected."
+    return True, ""
+
 @app.route("/")
 def home():
     return jsonify({
@@ -227,111 +254,96 @@ def ask_question():
 
 
 @app.route("/chat", methods=["POST"])
-@handle_exceptions
 def chat():
-    """
-    POST /chat
-    Request JSON:
-      { "user_id": "...", "message": "..." }
-    Response JSON (examples):
-      { "final_answer": "...", "is_db_question": True, "sql_query": "...", "db_results": [...], "metadata": {...} }
-    """
-
-    # --- Basic validation & schema retrieval ---
+    data = request.get_json(force=True)
     schema_text = get_schema_text_from_db()
-    if not schema_text or not isinstance(schema_text, str) or not schema_text.strip():
-        logger.error("Failed to retrieve DB schema")
-        return jsonify({"error": "Failed to retrieve database schema"}), 500
+    logger.info(f"Got chat request: {data}")
 
-    data = request.get_json(force=True) or {}
-    user_id = (data.get("user_id") or "default_user").strip()
-    message = (data.get("message") or "").strip()
-
-    if not user_id:
-        return jsonify({"error": "User ID cannot be empty"}), 400
-    if not message:
-        return jsonify({"error": "Message cannot be empty"}), 400
-
-    logger.info(f"User {user_id} message received: {message}")
-
-    # --- Heuristic: If user directly sent SQL, execute it (safe in dev, be careful in prod) ---
-    sql_prefixes = [
-        "SELECT", "WITH", "INSERT", "UPDATE", "DELETE","PRAGMA", "CREATE",
-        "DROP"
-    ]
-    # Use an uppercased copy for prefix check but do NOT mutate the original SQL
-    msg_upper = message.lstrip().upper()
-    looks_like_raw_sql = any(msg_upper.startswith(p) for p in sql_prefixes)
-
-    if looks_like_raw_sql:
-        try:
-            db_results = run_sql(message)  # pass original message, not uppercased
-            print (db_results)
-            # Ensure db_results is JSON-serializable
-            return jsonify({
-                "final_answer": f"Executed raw SQL. Returned {len(db_results) if hasattr(db_results, '__len__') else 'unknown'} rows.",
-                "sql_query": message,
-                "db_results": db_results,
-                "is_db_question": True,
-                "metadata": {"result_count": len(db_results) if hasattr(db_results, '__len__') else None, "success": True}
-            }), 200
-        except Exception as e:
-            logger.exception("Failed executing raw SQL")
-            return jsonify({"error": f"Failed to execute SQL: {str(e)}"}), 500
-
-    # --- Otherwise: classify the message (LLM) whether it's DB-related ---
     try:
-        is_db_question = call_openai_for_classification( message, schema_text)
-    except Exception as e:
-        logger.exception("Classification failed")
-        return jsonify({"error": f"Failed to classify the message: {str(e)}"}), 500
+        user_id = data.get("user_id", "default_user")
+        message = (data.get("message") or "").strip()
+        if not message:
+            return jsonify({"error": "Empty message"}), 400
 
-    # --- If DB-question: generate SQL, execute, create final answer ---
-    if is_db_question:
-        logger.info("Classified as DB-related")
+        # --- Explicit SQL path ---
+        if is_explicit_sql(message):
+            logger.info(f"User {user_id} sent explicit SQL: {message}")
+            ok, reason = is_safe_explicit_sql(message)
+            if not ok:
+                logger.warning(f"Rejected explicit SQL from user {user_id}: {reason}")
+                save_conversation(user_id, message, "", f"SQL rejected: {reason}")
+                return jsonify({"error": reason}), 400
+
+            try:
+                db_results = run_sql(message)
+                logger.info(f"User {user_id} executed explicit SQL successfully: {message}")
+                #final_answer = f"Done: {len(db_results)} rows."
+                final_answer = f"{db_results}"
+                save_conversation(user_id, message, message, final_answer)
+                return jsonify({
+                    "final_answer": final_answer,
+                    "sql_query": message,
+                    "db_results": db_results,
+                    "is_db_question": True,
+                    "metadata": {"success": True}
+                })
+
+            except Exception as e:
+                save_conversation(user_id, message, message, f"Execution failed: {e}")
+                return jsonify({"error": str(e)}), 500
+
+        # --- Otherwise classify ---
         try:
-            # Generate SQL from LLM (pass schema_text so the model knows the DB)
-            sql_query = call_openai_for_sql(message, schema_text)
-            print (sql_query)
-            if not sql_query or not isinstance(sql_query, str) or not sql_query.strip():
-                raise ValueError("Generated SQL query is empty")
-
-            db_results = run_sql(sql_query)
-
-            final_answer = call_openai_for_answer(
-                user_question=message,
-                sql_query=sql_query,
-                db_results=db_results,
-                context=""
-            ) or f"Query executed successfully and returned {len(db_results) if hasattr(db_results, '__len__') else 'some'} rows."
-
-            save_conversation(user_id, message, sql_query, final_answer)
-
-            return jsonify({
-                "final_answer": final_answer,
-                "sql_query": sql_query,
-                "db_results": db_results,
-                "is_db_question": True,
-                "metadata": {"result_count": len(db_results) if hasattr(db_results, '__len__') else None, "success": True}
-            }), 200
-
+            is_db = call_openai_for_classification(message, schema_text)
+            logger.info(f"User {user_id} sent message for classification: {message}")
         except Exception as e:
-            logger.exception("Failed processing DB question")
-            return jsonify({"error": f"Database question processing failed: {str(e)}"}), 500
+            return jsonify({"error": f"Classification failed: {e}"}), 500
 
-    # --- Non-DB question path ---
-    logger.info("Classified as non-database-related")
-    try:
-        final_answer = call_openai_for_not_db_answer(prompt=message, user_id=user_id) or "I'm sorry, I couldn't process your request."
+        # --- LLM-generated SQL ---
+        if is_db:
+            logger.info(f"User {user_id} sent message for DB access: {message}")
+            try:
+                sql_query = call_openai_for_sql(message, schema_text)
+                ok, reason = is_safe_explicit_sql(sql_query, allowed_top_level={"SELECT","WITH","INSERT","UPDATE","DELETE"})
+                if not ok:
+                    save_conversation(user_id, message, sql_query, f"Rejected: {reason}")
+                    return jsonify({"error": reason}), 400
+
+                db_results = run_sql(sql_query)
+                logger.info(f"User {user_id} executed DB query successfully: {sql_query}")
+                final_answer = call_openai_for_answer(
+                    user_question=message,
+                    sql_query=sql_query,
+                    db_results=db_results,
+                    context=""
+                )
+
+                save_conversation(user_id, message, sql_query, final_answer)
+                logger.info(f"User {user_id} generated final answer: {final_answer}")
+                return jsonify({
+                    "final_answer": final_answer,
+                    "sql_query": sql_query,
+                    "db_results": db_results,
+                    "is_db_question": True,
+                    "metadata": {"success": True}
+                })
+
+            except Exception as e:
+                return jsonify({"error": f"DB processing failed: {e}"}), 500
+
+        # --- Not DB question ---
+        final_answer = call_openai_for_not_db_answer(message )
+
+        logger.info(f"User {user_id} sent message for non-DB access: {message}")
         save_conversation(user_id, message, "", final_answer)
         return jsonify({
             "final_answer": final_answer,
             "is_db_question": False,
             "metadata": {"success": True}
-        }), 200
+        })
+
     except Exception as e:
-        logger.exception("Failed processing non-db question")
-        return jsonify({"error": f"Non-database question processing failed: {str(e)}"}), 500
+        return jsonify({"error": f"Internal error: {e}"}), 500
 
 if __name__ == '__main__':
     logger.info("Starting Text-to-SQL API server...")
