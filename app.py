@@ -122,9 +122,9 @@ def preview():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/query', methods=['POST'])
+@app.route('/queryy', methods=['POST'])
 @handle_exceptions
-def query():
+def queryy():
     """Execute a natural language query and return SQL + results"""
     data = request.json
     if not data:
@@ -135,13 +135,20 @@ def query():
         return jsonify({"error": "Missing 'prompt' field"}), 400
     schema = get_schema_text_from_db()
     logger.info(f"Generating SQL for prompt: {prompt}")
-    trimmed = prompt.strip().upper()
-    if trimmed.startwith_any(
-            ["SELECT", "WITH", "INSERT", "UPDATE", "DELETE","PRAGMA", "CREATE", "DROP"]):
-        return run_sql(trimmed)
-    else:
+    trimmed = prompt.strip()
+    if trimmed.upper().startswith(
+            ("SELECT", "WITH", "INSERT", "UPDATE", "DELETE","PRAGMA", "CREATE", "DROP")):
+        logger.info(f"Generating SQL for query: {trimmed}")
+        rows = run_sql(trimmed if trimmed.endswith(";") else trimmed + ";")
+        return  jsonify({
+            "prompt": prompt,
+            "sql": trimmed,
+            "results": rows,
+            "result_count": len(rows)
+        }), 200
 
-        generated_sql= call_openai_for_sql(prompt,schema)
+
+    generated_sql= call_openai_for_sql(prompt,schema)
 
     if not generated_sql:
         return jsonify({"error": "Failed to generate SQL query"}), 400
@@ -164,6 +171,94 @@ def query():
             "error": f"SQL execution failed: {str(e)}"
         }), 400
 
+@app.route('/query', methods=['POST'])
+@handle_exceptions
+def query():
+    """Execute a natural language query and return SQL + results + explanation."""
+    data = request.json
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    prompt = data.get("prompt")
+    if not prompt:
+        return jsonify({"error": "Missing 'prompt' field"}), 400
+
+    user_id = data.get("user_id")
+    history_text = data.get("history", "")
+
+    schema = get_schema_text_from_db()
+    trimmed = prompt.strip()
+
+    # If user provided raw SQL, run it directly
+    if trimmed.upper().startswith(
+        ("SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "PRAGMA", "CREATE", "DROP")
+    ):
+        sql_to_run = trimmed if trimmed.endswith(";") else trimmed + ";"
+        db_results = run_sql(sql_to_run)
+
+        final_answer = call_openai_for_answer(
+            user_question=prompt,
+            sql_query=sql_to_run,
+            db_results=db_results,
+            context=history_text,
+        )
+
+        return jsonify({
+            "user_id": user_id,
+            "user_question": prompt,
+            "sql_query": sql_to_run,
+            "results": db_results,
+            "result_count": len(db_results) if isinstance(db_results, list) else 0,
+            "final_answer": final_answer,
+            "metadata": {"success": True},
+            "context_used": history_text
+        }), 200
+
+    # Otherwise: natural language -> SQL -> execute -> explain
+    try:
+        generated_sql = call_openai_for_sql(prompt, schema=schema)
+    except Exception as e:
+        logger.exception("SQL generation failed")
+        return jsonify({"error": f"SQL generation error: {e}"}), 500
+
+    if not generated_sql:
+        return jsonify({"error": "Failed to generate SQL query"}), 400
+
+    sql_to_run = generated_sql.strip()
+    if not sql_to_run.endswith(";"):
+        sql_to_run += ";"
+
+    try:
+        db_results = run_sql(sql_to_run)
+    except Exception as e:
+        logger.exception("SQL execution failed")
+        return jsonify({
+            "user_id": user_id,
+            "user_question": prompt,
+            "sql_query": sql_to_run,
+            "results": None,
+            "error": f"SQL execution error: {e}",
+            "metadata": {"success": False}
+        }), 500
+
+    # Generate human-readable explanation using the function you shared
+    final_answer = call_openai_for_answer(
+        user_question=prompt,
+        sql_query=sql_to_run,
+        db_results=db_results,
+        context=history_text,
+    )
+
+    return jsonify({
+        "user_id": user_id,
+        "user_question": prompt,
+        "sql_query": sql_to_run,
+        "results": db_results,
+        "result_count": len(db_results) if isinstance(db_results, list) else 0,
+        "final_answer": final_answer,
+        "metadata": {"success": True},
+        "context_used": history_text
+    }), 200
 
 @app.route("/ask", methods=["POST"])
 @handle_exceptions
@@ -277,8 +372,7 @@ def chat():
             try:
                 db_results = run_sql(message)
                 logger.info(f"User {user_id} executed explicit SQL successfully: {message}")
-                #final_answer = f"Done: {len(db_results)} rows."
-                final_answer = f"{db_results}"
+                final_answer = f"Done: {len(db_results)} rows."
                 save_conversation(user_id, message, message, final_answer)
                 return jsonify({
                     "final_answer": final_answer,
