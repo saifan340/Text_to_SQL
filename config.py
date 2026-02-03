@@ -5,7 +5,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+MODEL_NAME_GEMINI = os.getenv("MODEL_NAME_GEMINI", "gemini-2.5-flash")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///conversation.db")
 MAX_CONCURRENT =os.getenv("MAX_CONCURRENT", "MAX_CONCURRENT")
 MAX_RETRIES = os.getenv("MAX_RETRIES", "MAX_RETRIES")

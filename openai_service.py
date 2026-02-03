@@ -5,7 +5,7 @@ import re
 import logging
 from typing import Optional, List, Dict, Any
 
-from openai import OpenAI ,RateLimitError, OpenAIError
+from openai import OpenAI , OpenAIError
 
 from utils import get_schema_text_from_db
 from db import get_conversation_history
@@ -14,7 +14,8 @@ from config import (
     MODEL_NAME,
     MAX_CONCURRENT,
     MAX_RETRIES,
-    BASE_DELAY_SECONDS,
+    BASE_DELAY_SECONDS
+
 )
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ DEFAULT_SQL_TEMPERATURE = 0.2
 DEFAULT_ANSWER_TEMPERATURE = 0.0
 DEFAULT_CHAT_TEMPERATURE = 0.7
 
-# Recommended max_tokens per function (from our table)
+# max_tokens per function
 SQL_MAX_TOKENS = 150
 ANSWER_MAX_TOKENS = 300
 CHAT_MAX_TOKENS = 600
@@ -55,55 +56,68 @@ def create_chat_completion_with_retries(
     max_retries: Optional[int] = None,
     base_delay: Optional[float] = None,
 ) -> Any:
-    """
-    Call OpenAI chat completions with retries and exponential backoff.
-    IMPORTANT: pass `max_tokens` here so the underlying request is limited.
-    Returns the raw OpenAI response object on success (not the extracted text).
-    Raises on final failure.
-    """
+
     retries = int(max_retries) if max_retries is not None else int(MAX_RETRIES)
     delay = float(base_delay) if base_delay is not None else float(BASE_DELAY_SECONDS)
 
-    for attempt in range(retries):
+    for attempt in range(1, retries + 1):
         with semaphore:
+            start = time.time()
             try:
+                logger.info(
+                    "LLM call start | model=%s | attempt=%d/%d",
+                    model, attempt, retries
+                )
+
                 response = client.chat.completions.create(
                     model=model,
                     messages=messages,
                     temperature=temperature,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
                 )
+
+                elapsed = time.time() - start
+                logger.info(
+                    "LLM call success | %.2fs",
+                    elapsed
+                )
+
                 return response
+
             except RateLimitError as e:
-                wait = delay * (2 ** attempt) + _jitter(0, delay)
+                wait = delay * (2 ** (attempt - 1)) + _jitter(0, delay)
                 logger.warning(
-                    "RateLimitError (attempt %d/%d): %s. Backing off %.2fs",
-                    attempt + 1,
-                    retries,
-                    str(e),
-                    wait,
+                    "Rate limit (429) | retry in %.2fs | %s",
+                    wait, str(e)
                 )
                 time.sleep(wait)
                 continue
+
             except OpenAIError as e:
-                # Other recoverable OpenAI errors: retry similarly
-                wait = delay * (2 ** attempt) + _jitter(0, delay)
+                msg = str(e).lower()
+
+                # do NOT retry auth or bad request
+                if "invalid_api_key" in msg or "authentication" in msg:
+                    logger.error("Authentication error: %s", e)
+                    raise
+
+                if "invalid_request_error" in msg:
+                    logger.error("Bad request: %s", e)
+                    raise
+
+                wait = delay * (2 ** (attempt - 1)) + _jitter(0, delay)
                 logger.warning(
-                    "OpenAIError (attempt %d/%d): %s. Backing off %.2fs",
-                    attempt + 1,
-                    retries,
-                    str(e),
-                    wait,
+                    "OpenAI error | retry in %.2fs | %s",
+                    wait, str(e)
                 )
                 time.sleep(wait)
                 continue
+
             except Exception as e:
-                logger.exception("Unexpected exception while calling OpenAI: %s", e)
+                logger.exception("Unexpected error: %s", e)
                 raise
 
-    # all retries exhausted
     raise Exception("OpenAI request failed after retries")
-
 
 def _validate_openai_response(response: Any) -> str:
     """
@@ -180,7 +194,7 @@ def call_openai_for_sql(
             schema = get_schema_text_from_db()
 
         system_message = (
-            "You are an expert SQL assistant. "
+            "You are an expert SQL assistant and you answer the english and german question after translate it into english. "
             "Given a database schema and a natural language request, generate ONLY the SQL query. "
             "Use SQLite syntax. Do not include explanations or comments."
         )
@@ -312,6 +326,7 @@ def call_openai_for_not_db_answer(
         return f"Sorry, I encountered an error while generating a response: {e}"
 
 
+
 def call_openai_for_classification(question: str, schema_text: str, max_tokens: int = CLASSIFY_MAX_TOKENS) -> bool:
     """
     Classify whether a user question requires a SQL query.
@@ -353,3 +368,4 @@ QUESTION:
     except Exception as e:
         logger.error("Error in call_openai_for_classification: %s", e)
         return False
+
